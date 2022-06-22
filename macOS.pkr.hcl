@@ -73,6 +73,11 @@ variable "boot_key_interval_iso" {
   default = "150ms"
 }
 
+variable "boot_wait_uefi" {
+  type    = string
+  default = "10s"
+}
+
 variable "boot_wait_iso" {
   type    = string
   default = "300s"
@@ -203,6 +208,8 @@ source "vmware-iso" "macOS" {
     "usb_xhci.pciSlotNumber"                   = "192"
     "usb_xhci.present"                         = "TRUE"
     "hgfs.linkRootShare"                       = "FALSE"
+    "bios.forceSetupOnce"                      = "TRUE"
+    "sata1.present"                            = "TRUE"
   }
   vmx_data_post = {
     "sata0:0.autodetect"     = "TRUE"
@@ -211,11 +218,20 @@ source "vmware-iso" "macOS" {
     "sata0:0.startConnected" = "FALSE"
     "sata0:0.present"        = "TRUE"
     "vhv.enable"             = "TRUE"
+    "bios.forceSetupOnce"    = "FALSE"
+    "sata1.present"          = "FALSE"
   }
-  boot_wait              = var.boot_wait_iso
+  cd_files               = ["./uefi/*"]
+  cd_label               = "UEFI"
+  boot_wait              = var.boot_wait_uefi
   boot_key_interval      = var.boot_key_interval_iso
   boot_keygroup_interval = var.boot_keygroup_interval_iso
   boot_command = [
+    "<down><down><down><enter><wait7s>",
+    "csrutil =0x0000007f<enter><wait3s>",
+    "csrutil<enter><wait3s>",
+    "exit<enter><wait3s>",
+    "<up><up><up><enter><wait${var.boot_wait_iso}>",
     "<enter><wait10s>",
     "<leftSuperon><f5><leftSuperoff>",
     "<leftCtrlon><f2><leftCtrloff>",
@@ -225,6 +241,8 @@ source "vmware-iso" "macOS" {
     "<leftCtrlon><f2><leftCtrloff>",
     "w<down><down>",
     "<enter>",
+    "/usr/sbin/spctl kext-consent add EG7KH642X6<enter>",
+    "/usr/sbin/spctl kext-consent list<enter>",
     "curl -o /var/root/packer.pkg http://{{ .HTTPIP }}:{{ .HTTPPort }}/packer.pkg<enter>",
     "curl -o /var/root/setupsshlogin.pkg http://{{ .HTTPIP }}:{{ .HTTPPort }}/setupsshlogin.pkg<enter>",
     "curl -o /var/root/bootstrap.sh http://{{ .HTTPIP }}:{{ .HTTPPort }}/bootstrap.sh<enter>",
@@ -252,12 +270,8 @@ source "vmware-vmx" "macOS" {
   shutdown_command = "sudo shutdown -h now"
   output_directory = "output/{{build_name}}_${var.macos_version}"
   vmx_data = {
-    "nvram" = "../../scripts/disablesip.nvram"
     "svga.maxWidth" = "1024"
     "svga.maxHeight" = "768"
-  }
-  vmx_data_post = {
-    "nvram" = "{{build_name}}_${var.macos_version}.nvram"
   }
 }
 
@@ -292,7 +306,7 @@ build {
   sources = ["sources.vmware-vmx.macOS"]
 
   provisioner "file" {
-    sources     = [var.xcode_cli, "files/cliclick"]
+    sources     = [var.xcode_cli]
     destination = "~/"
   }
 
